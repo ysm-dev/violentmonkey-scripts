@@ -2,7 +2,7 @@
 // @name         YouTube Subscriptions: Unsubscribe in Video Menu
 // @namespace    youtube-subscriptions-unsubscribe
 // @version      1.0.2
-// @description  Add Unsubscribe to video menus in the subscriptions feed, using YouTube's own confirmation dialog.
+// @description  Unsubscribe directly from subscriptions-feed video menus with an immediate confirmation toast.
 // @homepageURL  https://github.com/ysm-dev/violentmonkey-scripts
 // @downloadURL  https://raw.githubusercontent.com/ysm-dev/violentmonkey-scripts/main/src/youtube-subscriptions-unsubscribe.user.js
 // @updateURL    https://raw.githubusercontent.com/ysm-dev/violentmonkey-scripts/main/src/youtube-subscriptions-unsubscribe.user.js
@@ -80,42 +80,31 @@
   function labels() {
     const language = window.ytcfg?.get('HL') || document.documentElement.lang || 'en';
     return /^ko(?:-|$)/i.test(language)
-      ? { unsubscribe: '구독 취소', cancel: '취소', question: (name) => `${name} 채널 구독을 취소하시겠습니까?` }
-      : { unsubscribe: 'Unsubscribe', cancel: 'Cancel', question: (name) => `Unsubscribe from ${name}?` };
+      ? { unsubscribe: '구독 취소', confirmation: (name) => `${name} 채널 구독을 취소했습니다.` }
+      : { unsubscribe: 'Unsubscribe', confirmation: (name) => `Unsubscribed from ${name}` };
   }
 
-  function confirmation(channel, label) {
+  function unsubscribe(channel, label) {
     return {
-      signalServiceEndpoint: {
-        signal: 'CLIENT_SIGNAL',
-        actions: [{
-          openPopupAction: {
-            popupType: 'DIALOG',
-            popup: {
-              confirmDialogRenderer: {
-                dialogMessages: [{ runs: [{ text: label.question(channel.name) }] }],
-                confirmButton: {
-                  buttonRenderer: {
-                    style: 'STYLE_BLUE_TEXT',
-                    size: 'SIZE_DEFAULT',
-                    text: { runs: [{ text: label.unsubscribe }] },
-                    serviceEndpoint: {
-                      commandMetadata: { webCommandMetadata: { sendPost: true, apiUrl: '/youtubei/v1/subscription/unsubscribe' } },
-                      unsubscribeEndpoint: { channelIds: [channel.id] },
-                    },
-                  },
-                },
-                cancelButton: {
-                  buttonRenderer: {
-                    style: 'STYLE_TEXT',
-                    size: 'SIZE_DEFAULT',
-                    text: { runs: [{ text: label.cancel }] },
-                  },
+      commandExecutorCommand: {
+        commands: [
+          {
+            commandMetadata: { webCommandMetadata: { sendPost: true, apiUrl: '/youtubei/v1/subscription/unsubscribe' } },
+            unsubscribeEndpoint: { channelIds: [channel.id] },
+          },
+          {
+            // Immediate optimistic feedback; YouTube handles the service request
+            // and any server-side error using its existing account/session logic.
+            openPopupAction: {
+              popupType: 'TOAST',
+              popup: {
+                notificationActionRenderer: {
+                  responseText: { simpleText: label.confirmation(channel.name) },
                 },
               },
             },
           },
-        }],
+        ],
       },
     };
   }
@@ -148,7 +137,7 @@
         return title === label.unsubscribe || title === 'Unsubscribe' || title === '구독 취소';
       })) return;
 
-      const command = confirmation(channel, label);
+      const command = unsubscribe(channel, label);
       const entry = modern ? {
         listItemViewModel: {
           title: { content: label.unsubscribe },
