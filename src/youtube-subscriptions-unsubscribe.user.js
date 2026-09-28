@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         YouTube Subscriptions: Unsubscribe in Video Menu
 // @namespace    youtube-subscriptions-unsubscribe
-// @version      1.0.1
+// @version      1.0.2
 // @description  Add Unsubscribe to video menus in the subscriptions feed, using YouTube's own confirmation dialog.
 // @homepageURL  https://github.com/ysm-dev/violentmonkey-scripts
 // @downloadURL  https://raw.githubusercontent.com/ysm-dev/violentmonkey-scripts/main/src/youtube-subscriptions-unsubscribe.user.js
