@@ -1,0 +1,60 @@
+name: Publish YouTube userscript update
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - src/youtube-subscriptions-unsubscribe.user.js
+      - .github/workflows/publish-youtube-userscript.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-youtube-userscript
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # Include earlier automated bumps if another push queued this run.
+          ref: main
+
+      - name: Check syntax and bump the userscript version
+        env:
+          USER_SCRIPT: src/youtube-subscriptions-unsubscribe.user.js
+        run: |
+          node --check "$USER_SCRIPT"
+          python3 - <<'PY'
+          import os
+          import re
+          from pathlib import Path
+
+          path = Path(os.environ['USER_SCRIPT'])
+          source = path.read_text()
+          pattern = r'^(// @version\s+)(\d+)\.(\d+)\.(\d+)$'
+          updated, count = re.subn(
+              pattern,
+              lambda match: f'{match[1]}{match[2]}.{match[3]}.{int(match[4]) + 1}',
+              source,
+              flags=re.MULTILINE,
+          )
+          if count != 1:
+              raise SystemExit('Expected exactly one numeric major.minor.patch @version')
+          path.write_text(updated)
+          PY
+
+      - name: Publish version bump
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -- src/youtube-subscriptions-unsubscribe.user.js
+          git commit -m 'chore: publish YouTube userscript update'
+          # GITHUB_TOKEN pushes do not trigger another workflow run.
+          git push origin HEAD:main
