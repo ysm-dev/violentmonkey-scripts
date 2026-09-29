@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OpenCode: New Sessions on Top in Vertical Tabs
 // @namespace    opencode-vertical-tabs-new-on-top
-// @version      1.0.0
+// @version      1.0.1
 // @description  Put new OpenCode sessions at the top of the vertical tab sidebar instead of the bottom.
 // @homepageURL  https://github.com/ysm-dev/violentmonkey-scripts
 // @downloadURL  https://raw.githubusercontent.com/ysm-dev/violentmonkey-scripts/main/src/opencode-vertical-tabs-new-on-top.user.js
