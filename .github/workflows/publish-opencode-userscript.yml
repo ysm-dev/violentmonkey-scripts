@@ -1,0 +1,69 @@
+name: Publish OpenCode userscript update
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - src/opencode-vertical-tabs-new-on-top.user.js
+      - .github/workflows/publish-opencode-userscript.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-opencode-userscript
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # Include earlier automated bumps if another push queued this run.
+          ref: main
+          # Full history so the publish step can rebase onto a concurrent push.
+          fetch-depth: 0
+
+      - name: Check syntax and bump the userscript version
+        env:
+          USER_SCRIPT: src/opencode-vertical-tabs-new-on-top.user.js
+        run: |
+          node --check "$USER_SCRIPT"
+          python3 - <<'PY'
+          import os
+          import re
+          from pathlib import Path
+
+          path = Path(os.environ['USER_SCRIPT'])
+          source = path.read_text()
+          pattern = r'^(// @version\s+)(\d+)\.(\d+)\.(\d+)$'
+          updated, count = re.subn(
+              pattern,
+              lambda match: f'{match[1]}{match[2]}.{match[3]}.{int(match[4]) + 1}',
+              source,
+              flags=re.MULTILINE,
+          )
+          if count != 1:
+              raise SystemExit('Expected exactly one numeric major.minor.patch @version')
+          path.write_text(updated)
+          PY
+
+      - name: Publish version bump
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -- src/opencode-vertical-tabs-new-on-top.user.js
+          git commit -m 'chore: publish OpenCode userscript update'
+          # The YouTube publish workflow can push at the same moment; rebase onto it and retry.
+          # GITHUB_TOKEN pushes do not trigger another workflow run.
+          for attempt in 1 2 3 4 5; do
+            git push origin HEAD:main && exit 0
+            echo "Push attempt $attempt was rejected; rebasing onto the latest main" >&2
+            git pull --rebase origin main
+          done
+          echo 'Could not push the version bump after 5 attempts' >&2
+          exit 1
