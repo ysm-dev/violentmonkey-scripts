@@ -2,7 +2,7 @@
 // @name         OpenCode: New Sessions on Top in Vertical Tabs
 // @namespace    opencode-vertical-tabs-new-on-top
 // @version      1.0.1
-// @description  Put new OpenCode sessions at the top of the vertical tab sidebar instead of the bottom.
+// @description  Put new OpenCode sessions and sessions opened from Home at the top of the vertical tab sidebar.
 // @homepageURL  https://github.com/ysm-dev/violentmonkey-scripts
 // @downloadURL  https://raw.githubusercontent.com/ysm-dev/violentmonkey-scripts/main/src/opencode-vertical-tabs-new-on-top.user.js
 // @updateURL    https://raw.githubusercontent.com/ysm-dev/violentmonkey-scripts/main/src/opencode-vertical-tabs-new-on-top.user.js
@@ -21,7 +21,8 @@
   // `tabs.push(tab)`. Shortcuts, drag and drop and the saved order all follow that array, so
   // the insertion itself is moved to the front instead of reordering the DOM. `push` is only
   // replaced for a moment after a new session is signalled: by its draft id coming out of
-  // crypto.randomUUID(), or by a click on the sidebar's New Session button.
+  // crypto.randomUUID(), a click on the sidebar's New Session button, or opening a session
+  // from Home's Recent Sessions list/search. Session signals carry the clicked session id.
   const installed = Symbol.for('opencode-vertical-tabs-new-on-top');
   if (window[installed]) return;
   window[installed] = true;
@@ -29,6 +30,9 @@
   const SIDEBAR = '[data-slot="vertical-tabs-sidebar"]';
   const NEW_SESSION = `${SIDEBAR} [data-action="vertical-tabs-new-session"]`;
   const SLOTS = `${SIDEBAR} [data-titlebar-tab-slot]`;
+  const HOME_ROW = '[data-component="home-session-row"]';
+  const SEARCH_ROW = '[data-component="home-session-search-row"]';
+  const SEARCH_INPUT = '[data-component="home-session-search"] input[aria-activedescendant]';
   const SIGNAL_MS = 1000;
   const REVEAL_MS = 5000;
 
@@ -37,8 +41,10 @@
   const apply = Reflect.apply;
 
   const draftIds = new Map(); // id from crypto.randomUUID() -> expiry
+  const sessionIds = new Map(); // id opened from Home -> expiry
+  const watchedSessions = new Set(); // session ids to check for missed insertions when disarming
   const clicks = []; // expiry of every New Session click that has not produced a tab yet
-  const moved = new Set(); // ids of the drafts placed on top
+  const moved = new Set(); // tab keys placed on top during this watch
   let armed = false;
   let before = new Set();
   let timer = 0;
@@ -52,20 +58,32 @@
   const hasSidebar = () => document.querySelector(SIDEBAR) !== null;
   const slots = () => Array.from(document.querySelectorAll(SLOTS));
   const keyOf = (slot) => slot.getAttribute('data-tab-key') || '';
-  const slotOf = (id) => slots().find((slot) => keyOf(slot).includes(id));
-  const draftKeys = () => new Set(slots().map(keyOf).filter((key) => key.startsWith('draft:')));
+  const isTabKey = (key, tab) => tab.type === 'draft'
+    ? key === `draft:${tab.draftID}`
+    : key.startsWith(`${tab.server}\n`) && key.endsWith(`/session/${tab.sessionId}`);
+  const slotOf = (tab) => slots().find((slot) => isTabKey(keyOf(slot), tab));
+  const tabKeys = () => new Set(slots().map(keyOf));
+  const identity = (tab) => tab.type === 'draft' ? `draft:${tab.draftID}` : `${tab.server}\n${tab.sessionId}`;
+  const identityOfKey = (key) => key.startsWith('draft:')
+    ? key : `${key.split('\n')[0]}\n${key.slice(key.lastIndexOf('/session/') + 9)}`;
+  const isTab = (tab) => tab !== null && typeof tab === 'object' && typeof tab.server === 'string'
+    && (tab.type === 'draft' ? typeof tab.draftID === 'string' && tab.draftID !== ''
+      : tab.type === 'session' && typeof tab.sessionId === 'string' && tab.sessionId !== '');
 
-  // A push qualifies when a new-session signal is pending for that draft, the vertical
+  // A push qualifies when a signal is pending for that tab, the vertical
   // sidebar is showing, and the array looks like the tab list.
   function match(list, item) {
-    if (item === null || typeof item !== 'object' || item.type !== 'draft') return false;
-    const id = item.draftID;
-    if (typeof id !== 'string' || id === '' || !Array.isArray(list) || !hasSidebar()) return false;
-    // A click alone carries no id, so it only matches a draft that is not on screen yet.
-    if (!draftIds.has(id) && !(clicks.length && !slotOf(id))) return false;
+    if (!isTab(item) || !Array.isArray(list) || !hasSidebar()) return false;
+    const now = performance.now();
+    if (item.type === 'session') {
+      if (!(sessionIds.get(item.sessionId) > now)) return false;
+    } else {
+      // A click alone carries no id, so it only matches a draft that is not on screen yet.
+      if (!(draftIds.get(item.draftID) > now) && !(clicks.some((until) => until > now) && !slotOf(item))) return false;
+    }
     for (let index = 0; index < list.length; index++) {
       const tab = list[index];
-      if (tab === null || typeof tab !== 'object' || typeof tab.type !== 'string' || tab.draftID === id) return false;
+      if (!isTab(tab) || identity(tab) === identity(item)) return false;
     }
     return true;
   }
@@ -81,7 +99,7 @@
       if (hit) {
         const length = apply(nativeUnshift, this, [item]);
         try {
-          settle(item.draftID);
+          settle(item);
         } catch (error) {
           warn('Could not finish moving the new tab:', error);
         }
@@ -91,21 +109,23 @@
     return apply(nativePush, this, arguments);
   }
 
-  function settle(id) {
-    draftIds.delete(id);
-    clicks.shift();
-    moved.add(id);
-    if (moved.size > 50) moved.delete(moved.values().next().value);
+  function settle(tab) {
+    if (tab.type === 'session') sessionIds.delete(tab.sessionId);
+    else {
+      draftIds.delete(tab.draftID);
+      clicks.shift();
+    }
+    moved.add(identity(tab));
     schedule();
-    reveal(id);
+    reveal(tab);
   }
 
   // The tab may render later than the store changes, and the list may be scrolled away from it.
-  function reveal(id) {
+  function reveal(tab) {
     const deadline = performance.now() + REVEAL_MS;
     const check = () => {
       try {
-        const slot = slotOf(id);
+        const slot = slotOf(tab);
         if (slot) slot.scrollIntoView({ behavior: 'instant', block: 'nearest' });
         else if (performance.now() < deadline) requestAnimationFrame(check);
       } catch (error) {
@@ -124,7 +144,9 @@
     }
     try {
       // Anything that can fail comes before the patch, so a failure never leaves it behind.
-      before = draftKeys();
+      before = tabKeys();
+      moved.clear();
+      watchedSessions.clear();
       Array.prototype.push = push;
     } catch (error) {
       warn('Could not watch new tabs:', error);
@@ -142,10 +164,11 @@
     } catch (error) {
       warn('Could not restore Array.prototype.push:', error);
     }
-    // A draft appeared while watching but was not moved, so OpenCode probably changed.
+    // A signalled tab appeared while watching but was not moved, so OpenCode probably changed.
     try {
-      for (const key of draftKeys()) {
-        if (before.has(key) || Array.from(moved).some((id) => key.includes(id))) continue;
+      for (const key of tabKeys()) {
+        if (before.has(key) || moved.has(identityOfKey(key))) continue;
+        if (!key.startsWith('draft:') && !watchedSessions.has(key.slice(key.lastIndexOf('/session/') + 9))) continue;
         warn('A new session tab was not moved to the top; OpenCode may have changed how it adds tabs.');
         break;
       }
@@ -157,7 +180,7 @@
   function schedule() {
     clearTimeout(timer);
     timer = 0;
-    const next = Math.min(draftIds.values().next().value ?? Infinity, clicks[0] ?? Infinity);
+    const next = Math.min(...draftIds.values(), ...sessionIds.values(), clicks[0] ?? Infinity);
     if (next === Infinity) disarm();
     else timer = setTimeout(expire, Math.max(0, next - performance.now()));
   }
@@ -166,6 +189,7 @@
     timer = 0;
     const limit = performance.now() + 1;
     for (const [id, until] of draftIds) if (until <= limit) draftIds.delete(id);
+    for (const [id, until] of sessionIds) if (until <= limit) sessionIds.delete(id);
     while (clicks.length && clicks[0] <= limit) clicks.shift();
     schedule();
   }
@@ -175,6 +199,17 @@
     const until = performance.now() + SIGNAL_MS;
     if (id === undefined) clicks.push(until);
     else draftIds.set(id, until);
+    schedule();
+  }
+
+  function trackSession(row) {
+    if (!row || !hasSidebar()) return;
+    const id = row.matches(SEARCH_ROW)
+      ? row.getAttribute('data-key')?.split(':').pop()
+      : row.closest('[data-component="home-session-row-container"]')?.getAttribute('data-session-id');
+    if (!id || !arm()) return;
+    sessionIds.set(id, performance.now() + SIGNAL_MS);
+    watchedSessions.add(id);
     schedule();
   }
 
@@ -202,12 +237,36 @@
     }
   }
 
-  // Capture phase, so the signal exists before the app's own click handler creates the draft.
+  // Capture phase, so the signal exists before the app's own handlers add the tab.
   window.addEventListener('click', (event) => {
     try {
-      if (event.target instanceof Element && event.target.closest(NEW_SESSION)) track();
+      if (!(event.target instanceof Element)) return;
+      if (event.target.closest(NEW_SESSION)) track();
+      trackSession(event.target.closest(`${HOME_ROW}, ${SEARCH_ROW}`));
     } catch (error) {
-      warn('Could not watch the New Session button:', error);
+      warn('Could not watch a session click:', error);
+    }
+  }, true);
+
+  window.addEventListener('auxclick', (event) => {
+    try {
+      if (event.button === 1 && event.target instanceof Element) {
+        trackSession(event.target.closest(`${HOME_ROW}, ${SEARCH_ROW}`));
+      }
+    } catch (error) {
+      warn('Could not watch a session middle-click:', error);
+    }
+  }, true);
+
+  window.addEventListener('keydown', (event) => {
+    try {
+      if (event.key !== 'Enter' || event.isComposing || event.altKey || event.metaKey) return;
+      if (!(event.target instanceof Element) || !event.target.matches(SEARCH_INPUT)) return;
+      if (event.target.getAttribute('aria-expanded') !== 'true') return;
+      const row = document.getElementById(event.target.getAttribute('aria-activedescendant'));
+      if (row?.matches(SEARCH_ROW)) trackSession(row);
+    } catch (error) {
+      warn('Could not watch Home search selection:', error);
     }
   }, true);
 })();
