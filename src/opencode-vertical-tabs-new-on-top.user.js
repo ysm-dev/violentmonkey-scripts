@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OpenCode: New Sessions on Top in Vertical Tabs
 // @namespace    opencode-vertical-tabs-new-on-top
-// @version      1.1.0
+// @version      1.1.1
 // @description  Put new and Home-opened sessions on top of OpenCode's vertical tabs and navigate with Option/Alt+Up/Down.
 // @homepageURL  https://github.com/ysm-dev/violentmonkey-scripts
 // @downloadURL  https://raw.githubusercontent.com/ysm-dev/violentmonkey-scripts/main/src/opencode-vertical-tabs-new-on-top.user.js
