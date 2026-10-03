@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         OpenCode: New Sessions on Top in Vertical Tabs
 // @namespace    opencode-vertical-tabs-new-on-top
-// @version      1.0.2
-// @description  Put new OpenCode sessions and sessions opened from Home at the top of the vertical tab sidebar.
+// @version      1.1.0
+// @description  Put new and Home-opened sessions on top of OpenCode's vertical tabs and navigate with Option/Alt+Up/Down.
 // @homepageURL  https://github.com/ysm-dev/violentmonkey-scripts
 // @downloadURL  https://raw.githubusercontent.com/ysm-dev/violentmonkey-scripts/main/src/opencode-vertical-tabs-new-on-top.user.js
 // @updateURL    https://raw.githubusercontent.com/ysm-dev/violentmonkey-scripts/main/src/opencode-vertical-tabs-new-on-top.user.js
@@ -213,6 +213,34 @@
     schedule();
   }
 
+  // OpenCode only binds left/right tab cycling, even with a vertical sidebar.
+  // Click its existing links so drafts, routing and saved active-tab state use the app's handlers.
+  function navigateTab(event) {
+    if (event.defaultPrevented || event.isComposing || event.keyCode === 229) return;
+    if (!event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+    if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return;
+    if (!hasSidebar()) return;
+    const visible = (element) => element.checkVisibility({ visibilityProperty: true });
+    if (Array.from(document.querySelectorAll('[role="dialog"], [role="alertdialog"], [role="menu"], dialog[open]'))
+      .some(visible)) return;
+    if (document.querySelector(`${SIDEBAR} [data-editing="true"], ${SIDEBAR} [data-dragging="true"]`)) return;
+
+    // Off-screen tabs still count; only unrendered/hidden tabs are skipped.
+    const tabs = slots().filter(visible);
+    const current = tabs.findIndex((slot) => slot.getAttribute('data-active') === 'true');
+    if (current === -1 || tabs.length < 2) return;
+    const offset = event.key === 'ArrowUp' ? -1 : 1;
+    const next = tabs[(current + offset + tabs.length) % tabs.length];
+    const link = next.querySelector('a[data-titlebar-tab-link]');
+    if (!link || !visible(link)) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+    // HTMLElement.click() has detail 0, which OpenCode treats as keyboard activation.
+    link.click();
+    next.scrollIntoView({ behavior: 'instant', block: 'nearest' });
+  }
+
   const cryptoObject = window.crypto;
   const nativeRandomUUID = cryptoObject?.randomUUID;
   if (typeof nativeRandomUUID === 'function') {
@@ -255,6 +283,14 @@
       }
     } catch (error) {
       warn('Could not watch a session middle-click:', error);
+    }
+  }, true);
+
+  window.addEventListener('keydown', (event) => {
+    try {
+      navigateTab(event);
+    } catch (error) {
+      warn('Could not navigate vertical tabs:', error);
     }
   }, true);
 
