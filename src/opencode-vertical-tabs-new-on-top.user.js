@@ -2,7 +2,7 @@
 // @name         OpenCode: New Sessions on Top in Vertical Tabs
 // @namespace    opencode-vertical-tabs-new-on-top
 // @version      1.1.1
-// @description  Put new and Home-opened sessions on top of OpenCode's vertical tabs and navigate with Option/Alt+Up/Down.
+// @description  Put new and Home-opened sessions on top of OpenCode's vertical tabs, navigate with Option/Alt+Up/Down, and reserve Cmd+1–9 for browser tabs.
 // @homepageURL  https://github.com/ysm-dev/violentmonkey-scripts
 // @downloadURL  https://raw.githubusercontent.com/ysm-dev/violentmonkey-scripts/main/src/opencode-vertical-tabs-new-on-top.user.js
 // @updateURL    https://raw.githubusercontent.com/ysm-dev/violentmonkey-scripts/main/src/opencode-vertical-tabs-new-on-top.user.js
@@ -26,6 +26,15 @@
   const installed = Symbol.for('opencode-vertical-tabs-new-on-top');
   if (window[installed]) return;
   window[installed] = true;
+
+  // Run before OpenCode's document-capture handler so Cmd+1–9 stays with the browser.
+  window.addEventListener('keydown', (event) => {
+    if (!event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
+    if (!/^[1-9]$/.test(event.key)) return;
+
+    event.stopImmediatePropagation();
+    // Do not preventDefault(): the browser should perform its native tab switching.
+  }, true);
 
   const SIDEBAR = '[data-slot="vertical-tabs-sidebar"]';
   const NEW_SESSION = `${SIDEBAR} [data-action="vertical-tabs-new-session"]`;
