@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         OpenCode: New Sessions on Top in Vertical Tabs
+// @name         OpenCode UI Extension
 // @namespace    opencode-vertical-tabs-new-on-top
-// @version      1.1.2
-// @description  Put new and Home-opened sessions on top of OpenCode's vertical tabs, navigate with Option/Alt+Up/Down, and reserve Cmd+1–9 for browser tabs.
+// @version      1.1.3
+// @description  Put new and Home-opened sessions on top of OpenCode's vertical tabs, navigate with Option/Alt+Up/Down, stop subagents with Esc, and reserve Cmd+1–9 for browser tabs.
 // @homepageURL  https://github.com/ysm-dev/violentmonkey-scripts
 // @downloadURL  https://raw.githubusercontent.com/ysm-dev/violentmonkey-scripts/main/src/opencode-vertical-tabs-new-on-top.user.js
 // @updateURL    https://raw.githubusercontent.com/ysm-dev/violentmonkey-scripts/main/src/opencode-vertical-tabs-new-on-top.user.js
@@ -44,6 +44,9 @@
   const SEARCH_INPUT = '[data-component="home-session-search"] input[aria-activedescendant]';
   const SIGNAL_MS = 1000;
   const REVEAL_MS = 5000;
+  // The app removes this parameter during startup; retain it for a newly paired server.
+  const startupAuthToken = new URLSearchParams(location.search).get('auth_token');
+  const stopping = new Set();
 
   const nativePush = Array.prototype.push;
   const nativeUnshift = Array.prototype.unshift;
@@ -250,6 +253,66 @@
     next.scrollIntoView({ behavior: 'instant', block: 'nearest' });
   }
 
+  // Child sessions have no composer/Stop button. Capture Esc before the app uses it
+  // to open the parent, then interrupt the child identified by the current route.
+  function stopSubagent(event) {
+    if (event.defaultPrevented || event.isComposing || event.keyCode === 229) return;
+    if (event.key !== 'Escape' || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+    const visible = (element) => element.checkVisibility({ visibilityProperty: true });
+    if (!Array.from(document.querySelectorAll('[data-slot="session-title-parent"]')).some(visible)) return;
+    if (Array.from(document.querySelectorAll('[role="dialog"], [role="alertdialog"], [role="menu"], [role="listbox"], dialog[open]'))
+      .some(visible)) return;
+    const editing = (element) => element instanceof HTMLElement && (element.isContentEditable
+      || element.closest('input, textarea, select, button, [data-prevent-autofocus]'));
+    if (event.composedPath().some(editing) || editing(document.activeElement)) return;
+    if (document.querySelector(`${SIDEBAR} [data-editing="true"], ${SIDEBAR} [data-dragging="true"]`)) return;
+    const route = location.pathname.match(/^\/server\/([^/]+)\/session\/(ses_[^/]+)\/?$/);
+    if (!route) return;
+
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    // Consume held-key repeats too, so they cannot trigger the parent's navigation.
+    if (event.repeat || stopping.has(location.pathname)) return;
+    const path = location.pathname;
+    stopping.add(path);
+    void interruptSubagent(route).catch((error) => {
+      console.error('[OpenCode new sessions on top] Could not stop subagent:', error);
+      const notice = document.createElement('div');
+      notice.setAttribute('role', 'alert');
+      notice.textContent = `Could not stop subagent: ${error.message}`;
+      notice.style.cssText = 'position:fixed;bottom:24px;left:24px;z-index:2147483647;max-width:420px;padding:12px 16px;border-radius:8px;background:#382626;color:#fff;font:14px/1.4 system-ui;box-shadow:0 2px 12px #0006';
+      document.body.append(notice);
+      setTimeout(() => notice.remove(), 8000);
+    }).finally(() => stopping.delete(path));
+  }
+
+  async function interruptSubagent(route) {
+    const binary = atob(route[1].replace(/-/g, '+').replace(/_/g, '/'));
+    const server = new TextDecoder().decode(Uint8Array.from(binary, (character) => character.charCodeAt(0)));
+    if (!/^https?:\/\//.test(server)) throw new Error('Cannot resolve the active OpenCode server.');
+    const base = server.replace(/\/+$/, '');
+    const stored = JSON.parse(localStorage.getItem('opencode.global.dat:server') || '{}');
+    const connection = stored.list?.map((item) => item?.http ?? item)
+      .find((item) => typeof item?.url === 'string' && item.url.replace(/\/+$/, '') === base);
+    const headers = new Headers();
+    if (connection?.password) headers.set('Authorization', `Basic ${btoa(`opencode:${connection.password}`)}`);
+    else if (startupAuthToken && base === location.origin) {
+      const auth = atob(startupAuthToken.replace(/-/g, '+').replace(/_/g, '/'));
+      if (!auth.includes(':')) throw new Error('Invalid OpenCode authentication token.');
+      headers.set('Authorization', `Basic ${btoa(`opencode:${auth.slice(auth.indexOf(':') + 1)}`)}`);
+    }
+    // Same-origin login cookies are sent by fetch; saved remote servers use Basic auth.
+    const options = { headers, credentials: 'same-origin', signal: AbortSignal.timeout(10000) };
+    const endpoint = `${base}/api/session/${encodeURIComponent(route[2])}`;
+    const response = await fetch(endpoint, options);
+    if (!response.ok) throw new Error(`Session lookup failed (HTTP ${response.status}).`);
+    const session = await response.json();
+    // A stale breadcrumb during navigation must never turn Esc into a stop of the main agent.
+    if (session.id !== route[2] || !session.parentID) throw new Error('The displayed session is not a subagent.');
+    const result = await fetch(`${endpoint}/interrupt`, { ...options, method: 'POST' });
+    if (!result.ok) throw new Error(`Interrupt failed (HTTP ${result.status}).`);
+  }
+
   const cryptoObject = window.crypto;
   const nativeRandomUUID = cryptoObject?.randomUUID;
   if (typeof nativeRandomUUID === 'function') {
@@ -297,6 +360,7 @@
 
   window.addEventListener('keydown', (event) => {
     try {
+      stopSubagent(event);
       navigateTab(event);
     } catch (error) {
       warn('Could not navigate vertical tabs:', error);
