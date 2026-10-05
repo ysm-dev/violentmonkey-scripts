@@ -4,8 +4,8 @@
 // @version      1.1.4
 // @description  Put new and Home-opened sessions on top of OpenCode's vertical tabs, navigate with Option/Alt+Up/Down, stop subagents with Esc, and reserve Cmd+1–9 for browser tabs.
 // @homepageURL  https://github.com/ysm-dev/violentmonkey-scripts
-// @downloadURL  https://raw.githubusercontent.com/ysm-dev/violentmonkey-scripts/main/src/opencode-vertical-tabs-new-on-top.user.js
-// @updateURL    https://raw.githubusercontent.com/ysm-dev/violentmonkey-scripts/main/src/opencode-vertical-tabs-new-on-top.user.js
+// @downloadURL  https://raw.githubusercontent.com/ysm-dev/violentmonkey-scripts/main/src/opencode-ui-extension.user.js
+// @updateURL    https://raw.githubusercontent.com/ysm-dev/violentmonkey-scripts/main/src/opencode-ui-extension.user.js
 // @match        https://chris-mini.pug-mohs.ts.net/*
 // @grant        none
 // @inject-into  page
@@ -306,9 +306,10 @@
     const endpoint = `${base}/api/session/${encodeURIComponent(route[2])}`;
     const response = await fetch(endpoint, options);
     if (!response.ok) throw new Error(`Session lookup failed (HTTP ${response.status}).`);
-    const session = await response.json();
+    // The HTTP API wraps the session in `data`; the app's client unwraps it automatically.
+    const { data: session } = await response.json();
     // A stale breadcrumb during navigation must never turn Esc into a stop of the main agent.
-    if (session.id !== route[2] || !session.parentID) throw new Error('The displayed session is not a subagent.');
+    if (session?.id !== route[2] || !session.parentID) throw new Error('The displayed session is not a subagent.');
     const result = await fetch(`${endpoint}/interrupt`, { ...options, method: 'POST' });
     if (!result.ok) throw new Error(`Interrupt failed (HTTP ${result.status}).`);
   }

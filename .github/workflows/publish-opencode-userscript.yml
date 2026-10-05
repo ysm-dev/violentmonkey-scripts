@@ -4,7 +4,7 @@ on:
   push:
     branches: [main]
     paths:
-      - src/opencode-vertical-tabs-new-on-top.user.js
+      - src/opencode-ui-extension.user.js
       - .github/workflows/publish-opencode-userscript.yml
   workflow_dispatch:
 
@@ -30,7 +30,7 @@ jobs:
 
       - name: Check syntax and bump the userscript version
         env:
-          USER_SCRIPT: src/opencode-vertical-tabs-new-on-top.user.js
+          USER_SCRIPT: src/opencode-ui-extension.user.js
         run: |
           node --check "$USER_SCRIPT"
           python3 - <<'PY'
@@ -56,7 +56,7 @@ jobs:
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add -- src/opencode-vertical-tabs-new-on-top.user.js
+          git add -- src/opencode-ui-extension.user.js
           git commit -m 'chore: publish OpenCode userscript update'
           # The YouTube publish workflow can push at the same moment; rebase onto it and retry.
           # GITHUB_TOKEN pushes do not trigger another workflow run.
