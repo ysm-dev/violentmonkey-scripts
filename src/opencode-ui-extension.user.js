@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OpenCode UI Extension
 // @namespace    opencode-vertical-tabs-new-on-top
-// @version      1.1.4
+// @version      1.1.5
 // @description  Put new and Home-opened sessions on top of OpenCode's vertical tabs, navigate with Option/Alt+Up/Down, stop subagents with Esc, and reserve Cmd+1–9 for browser tabs.
 // @homepageURL  https://github.com/ysm-dev/violentmonkey-scripts
 // @downloadURL  https://raw.githubusercontent.com/ysm-dev/violentmonkey-scripts/main/src/opencode-ui-extension.user.js
