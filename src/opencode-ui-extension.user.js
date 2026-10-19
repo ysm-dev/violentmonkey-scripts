@@ -7,6 +7,7 @@
 // @downloadURL  https://raw.githubusercontent.com/ysm-dev/violentmonkey-scripts/main/src/opencode-ui-extension.user.js
 // @updateURL    https://raw.githubusercontent.com/ysm-dev/violentmonkey-scripts/main/src/opencode-ui-extension.user.js
 // @match        https://chris-mini.pug-mohs.ts.net/*
+// @match        https://muse-oc.ysm.dev/*
 // @grant        none
 // @inject-into  page
 // @run-at       document-start
